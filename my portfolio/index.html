@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>我的作品集</title>
+<style>
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: #0b0c0f;
+    overflow-y: auto;
+    cursor: none;
+  }
+  #viewer {
+    width: min(1200px, 96vw);
+    margin: 0 auto;
+    padding: 4vh 0 10vh;
+    display: grid;
+    gap: 24px;
+  }
+  .pageCanvas {
+    width: 100%;
+    height: auto;
+    display: block;
+    background: #111;
+    border-radius: 8px;
+    box-shadow: 0 20px 60px rgba(0,0,0,.35), 0 2px 12px rgba(0,0,0,.35);
+  }
+
+  /* 液态玻璃光标 */
+  #glassCursor {
+    position: fixed;
+    left: 0;
+    top: 0;
+    width: 140px;
+    height: 140px;
+    pointer-events: none;
+    z-index: 9999;
+    border-radius: 50%;
+    transform: translate(-9999px, -9999px);
+    backdrop-filter: blur(10px) saturate(1.2) brightness(1.05);
+    -webkit-backdrop-filter: blur(10px) saturate(1.2) brightness(1.05);
+    box-shadow:
+      inset 0 0 0 1px rgba(255,255,255,0.35),
+      inset 0 12px 22px rgba(255,255,255,0.08),
+      0 10px 30px rgba(0,0,0,0.35);
+    background: radial-gradient(
+      120px 120px at 30% 30%,
+      rgba(255,255,255,0.06),
+      rgba(255,255,255,0.02) 60%,
+      rgba(255,255,255,0.00) 70%
+    );
+    outline: 1px solid rgba(255,255,255,0.08);
+  }
+  #magnifyCanvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+    border-radius: 50%;
+  }
+  ::-webkit-scrollbar { width: 10px; }
+  ::-webkit-scrollbar-thumb { background: #2a2d33; border-radius: 6px; }
+  ::-webkit-scrollbar-track { background: #0f1115; }
+</style>
+</head>
+<body>
+  <div id="viewer"></div>
+
+  <div id="glassCursor">
+    <canvas id="magnifyCanvas" width="280" height="280"></canvas>
+  </div>
+
+  <!-- PDF.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@4.6.82/build/pdf.min.js"></script>
+  <script>
+    const PDF_URL = "portfolio.pdf"; // 文件名务必与仓库中一致
+    const BASE_SCALE = 1.5;
+    const MAGNIFY_ZOOM = 1.6;
+    const MAGNIFY_SIZE = 140;
+    const MAG_RADIUS = MAGNIFY_SIZE / 2;
+
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.6.82/build/pdf.worker.min.js";
+
+    const viewer = document.getElementById("viewer");
+
+    // 渲染 PDF
+    (async () => {
+      try {
+        const pdf = await pdfjsLib.getDocument(PDF_URL).promise;
+        for (let p = 1; p <= pdf.numPages; p++) {
+          const page = await pdf.getPage(p);
+          const viewportOrig = page.getViewport({ scale: 1 });
+          const containerW = Math.min(1200, window.innerWidth * 0.96);
+          const scale = Math.min(BASE_SCALE, (containerW / viewportOrig.width));
+          const viewport = page.getViewport({ scale });
+
+          const canvas = document.createElement("canvas");
+          canvas.className = "pageCanvas";
+          canvas.width = Math.ceil(viewport.width);
+          canvas.height = Math.ceil(viewport.height);
+          const ctx = canvas.getContext("2d");
+          await page.render({ canvasContext: ctx, viewport }).promise;
+          viewer.appendChild(canvas);
+        }
+      } catch (e) {
+        console.error(e);
+        viewer.innerHTML = '<p style="color:#fff;text-align:center;">无法加载 PDF。请确认文件名为 <b>portfolio.pdf</b> 并与本页面同目录。</p>';
+      }
+    })();
+
+    // 液态玻璃光标放大镜
+    const cursor = document.getElementById("glassCursor");
+    const magCanvas = document.getElementById("magnifyCanvas");
+    const magCtx = magCanvas.getContext("2d");
+
+    let targetX = -9999, targetY = -9999;
+    let curX = -9999, curY = -9999;
+    function raf() {
+      curX += (targetX - curX) * 0.22;
+      curY += (targetY - curY) * 0.22;
+      cursor.style.transform = `translate(${curX - MAG_RADIUS}px, ${curY - MAG_RADIUS}px)`;
+      requestAnimationFrame(raf);
+    }
+    requestAnimationFrame(raf);
+
+    document.addEventListener("mousemove", (ev) => {
+      targetX = ev.clientX;
+      targetY = ev.clientY;
+
+      const elements = document.elementsFromPoint(ev.clientX, ev.clientY);
+      const pageCanvas = elements.find(el => el.classList?.contains("pageCanvas"));
+      if (!pageCanvas) {
+        magCtx.clearRect(0, 0, magCanvas.width, magCanvas.height);
+        return;
+      }
+
+      const rect = pageCanvas.getBoundingClientRect();
+      const px = (ev.clientX - rect.left) * (pageCanvas.width / rect.width);
+      const py = (ev.clientY - rect.top)  * (pageCanvas.height / rect.height);
+
+      const srcSize = (MAGNIFY_SIZE / MAGNIFY_ZOOM);
+      const sx = Math.max(0, Math.min(pageCanvas.width - srcSize, px - srcSize/2));
+      const sy = Math.max(0, Math.min(pageCanvas.height - srcSize, py - srcSize/2));
+
+      magCtx.clearRect(0, 0, magCanvas.width, magCanvas.height);
+      magCtx.save();
+      magCtx.beginPath();
+      magCtx.arc(MAG_RADIUS, MAG_RADIUS, MAG_RADIUS - 1, 0, Math.PI * 2);
+      magCtx.closePath();
+      magCtx.clip();
+      magCtx.imageSmoothingEnabled = true;
+      magCtx.imageSmoothingQuality = "high";
+      magCtx.drawImage(pageCanvas, sx, sy, srcSize, srcSize, 0, 0, magCanvas.width, magCanvas.height);
+
+      const grd = magCtx.createRadialGradient(MAG_RADIUS * 0.6, MAG_RADIUS * 0.5, MAG_RADIUS * 0.1, MAG_RADIUS, MAG_RADIUS, MAG_RADIUS);
+      grd.addColorStop(0, "rgba(255,255,255,0.14)");
+      grd.addColorStop(0.6, "rgba(255,255,255,0.06)");
+      grd.addColorStop(1, "rgba(255,255,255,0.00)");
+      magCtx.fillStyle = grd;
+      magCtx.fillRect(0, 0, magCanvas.width, magCanvas.height);
+      magCtx.restore();
+    });
+
+    const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+    if (isTouch) {
+      document.body.style.cursor = 'auto';
+      cursor.style.display = 'none';
+    }
+  </script>
+</body>
+</html>
