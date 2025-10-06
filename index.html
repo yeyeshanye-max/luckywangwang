@@ -10,7 +10,7 @@
     height: 100%;
     background: #0b0c0f;
     overflow-y: auto;
-    cursor: none;
+    cursor: none; /* 隐藏系统鼠标 */
   }
   #viewer {
     width: min(1200px, 96vw);
@@ -28,145 +28,136 @@
     box-shadow: 0 20px 60px rgba(0,0,0,.35), 0 2px 12px rgba(0,0,0,.35);
   }
 
-  /* 液态玻璃光标 */
-  #glassCursor {
+  /* —— 玻璃透镜光标（无描边、无磨砂） —— */
+  #glassCursor{
     position: fixed;
-    left: 0;
-    top: 0;
-    width: 140px;
-    height: 140px;
-    pointer-events: none;
-    z-index: 9999;
-    border-radius: 50%;
-    transform: translate(-9999px, -9999px);
-    backdrop-filter: blur(10px) saturate(1.2) brightness(1.05);
-    -webkit-backdrop-filter: blur(10px) saturate(1.2) brightness(1.05);
-    box-shadow:
-      inset 0 0 0 1px rgba(255,255,255,0.35),
-      inset 0 12px 22px rgba(255,255,255,0.08),
-      0 10px 30px rgba(0,0,0,0.35);
-    background: radial-gradient(
-      120px 120px at 30% 30%,
-      rgba(255,255,255,0.06),
-      rgba(255,255,255,0.02) 60%,
-      rgba(255,255,255,0.00) 70%
-    );
-    outline: 1px solid rgba(255,255,255,0.08);
+    left: 0; top: 0;
+    width: 110px; height: 110px;          /* 光标更小 */
+    pointer-events: none; z-index: 9999; border-radius: 50%;
+    transform: translate(-9999px,-9999px);
+    background: transparent;              /* 透明，不叠任何底色 */
+    box-shadow: 0 8px 24px rgba(0,0,0,0.35); /* 仅外投影，营造悬浮感 */
+    /* 可选：极轻微的内辉光（几乎不可见，不算描边） */
+    /* filter: drop-shadow(0 0 1px rgba(255,255,255,0.08)); */
   }
-  #magnifyCanvas {
+  #magnifyCanvas{
     width: 100%;
     height: 100%;
     display: block;
     border-radius: 50%;
   }
+
   ::-webkit-scrollbar { width: 10px; }
   ::-webkit-scrollbar-thumb { background: #2a2d33; border-radius: 6px; }
   ::-webkit-scrollbar-track { background: #0f1115; }
 </style>
 </head>
 <body>
-  <div id="viewer"></div>
+  <div id="viewer" aria-label="PDF Viewer"></div>
 
-  <div id="glassCursor">
-    <canvas id="magnifyCanvas" width="280" height="280"></canvas>
+  <!-- 玻璃透镜光标（放大结果绘制在内部 canvas） -->
+  <div id="glassCursor" aria-hidden="true">
+    <!-- 将画布分辨率设为两倍，提高清晰度；CSS 大小由 #glassCursor 控制 -->
+    <canvas id="magnifyCanvas" width="220" height="220"></canvas>
   </div>
 
-  <!-- 改为本地 PDF.js 文件 -->
+  <!-- 使用“本地”PDF.js（请确保 /lib/pdfjs/ 下有这两个文件） -->
   <script src="./lib/pdfjs/pdf.min.js"></script>
   <script>
-    const PDF_URL = "portfolio.pdf"; // 文件名务必与仓库中一致
-    const BASE_SCALE = 1.5;
-    const MAGNIFY_ZOOM = 1.6;
-    const MAGNIFY_SIZE = 140;
-    const MAG_RADIUS = MAGNIFY_SIZE / 2;
+    // ========== 可调参数 ==========
+    const PDF_URL      = "portfolio.pdf";  // PDF 文件名（与根目录一致）
+    const BASE_SCALE   = 1.5;              // 页面渲染清晰度
+    const MAGNIFY_ZOOM = 1.9;              // 放大倍率（1.6~2.2 之间按需调）
+    const MAG_SIZE_CSS = 110;              // 透镜直径（CSS 尺寸，需与 #glassCursor 保持一致）
+    const MAG_RADIUS   = MAG_SIZE_CSS / 2;
 
-    pdfjsLib.GlobalWorkerOptions.workerSrc =
-      "./lib/pdfjs/pdf.worker.min.js";  // 使用本地的 worker 文件
+    // 指向本地 worker，避免跨域/CSP 问题
+    pdfjsLib.GlobalWorkerOptions.workerSrc = "./lib/pdfjs/pdf.worker.min.js";
 
-    const viewer = document.getElementById("viewer");
+    const viewer   = document.getElementById("viewer");
+    const cursorEl = document.getElementById("glassCursor");
+    const magCanvas = document.getElementById("magnifyCanvas");
+    const magCtx    = magCanvas.getContext("2d", { alpha: true });
 
-    // 渲染 PDF
+    // ========== 渲染 PDF ==========
     (async () => {
       try {
         const pdf = await pdfjsLib.getDocument(PDF_URL).promise;
         for (let p = 1; p <= pdf.numPages; p++) {
           const page = await pdf.getPage(p);
-          const viewportOrig = page.getViewport({ scale: 1 });
+          const viewport1 = page.getViewport({ scale: 1 });
           const containerW = Math.min(1200, window.innerWidth * 0.96);
-          const scale = Math.min(BASE_SCALE, (containerW / viewportOrig.width));
+          const scale = Math.min(BASE_SCALE, containerW / viewport1.width);
           const viewport = page.getViewport({ scale });
 
           const canvas = document.createElement("canvas");
           canvas.className = "pageCanvas";
-          canvas.width = Math.ceil(viewport.width);
+          canvas.width  = Math.ceil(viewport.width);
           canvas.height = Math.ceil(viewport.height);
+
           const ctx = canvas.getContext("2d");
           await page.render({ canvasContext: ctx, viewport }).promise;
           viewer.appendChild(canvas);
         }
       } catch (e) {
         console.error(e);
-        viewer.innerHTML = '<p style="color:#fff;text-align:center;">无法加载 PDF。请确认文件名为 <b>portfolio.pdf</b> 并与本页面同目录。</p>';
+        viewer.innerHTML = '<p style="color:#fff;text-align:center;opacity:.8;">加载失败：请确认 <b>portfolio.pdf</b> 位于仓库根目录（区分大小写）。</p>';
       }
     })();
 
-    // 液态玻璃光标放大镜
-    const cursor = document.getElementById("glassCursor");
-    const magCanvas = document.getElementById("magnifyCanvas");
-    const magCtx = magCanvas.getContext("2d");
-
-    let targetX = -9999, targetY = -9999;
-    let curX = -9999, curY = -9999;
-    function raf() {
+    // ========== 玻璃透镜放大效果 ==========
+    // 平滑跟随（减震）
+    let targetX = -9999, targetY = -9999, curX = -9999, curY = -9999;
+    (function follow(){
       curX += (targetX - curX) * 0.22;
       curY += (targetY - curY) * 0.22;
-      cursor.style.transform = `translate(${curX - MAG_RADIUS}px, ${curY - MAG_RADIUS}px)`;
-      requestAnimationFrame(raf);
-    }
-    requestAnimationFrame(raf);
+      cursorEl.style.transform = `translate(${curX - MAG_RADIUS}px, ${curY - MAG_RADIUS}px)`;
+      requestAnimationFrame(follow);
+    })();
 
     document.addEventListener("mousemove", (ev) => {
       targetX = ev.clientX;
       targetY = ev.clientY;
 
-      const elements = document.elementsFromPoint(ev.clientX, ev.clientY);
-      const pageCanvas = elements.find(el => el.classList?.contains("pageCanvas"));
-      if (!pageCanvas) {
+      // 找到指针下的 PDF 画布
+      const el = document.elementsFromPoint(ev.clientX, ev.clientY)
+                  .find(n => n.classList?.contains("pageCanvas"));
+      if (!el) {
+        // 不在PDF区域时清空透镜画面，但仍保留透明玻璃圈
         magCtx.clearRect(0, 0, magCanvas.width, magCanvas.height);
         return;
       }
 
-      const rect = pageCanvas.getBoundingClientRect();
-      const px = (ev.clientX - rect.left) * (pageCanvas.width / rect.width);
-      const py = (ev.clientY - rect.top)  * (pageCanvas.height / rect.height);
+      // 计算指针在该 canvas 内的像素坐标
+      const rect = el.getBoundingClientRect();
+      const px = (ev.clientX - rect.left) * (el.width / rect.width);
+      const py = (ev.clientY - rect.top)  * (el.height / rect.height);
 
-      const srcSize = (MAGNIFY_SIZE / MAGNIFY_ZOOM);
-      const sx = Math.max(0, Math.min(pageCanvas.width - srcSize, px - srcSize/2));
-      const sy = Math.max(0, Math.min(pageCanvas.height - srcSize, py - srcSize/2));
+      // 采样区域大小（源图的直径）
+      const srcSize = (MAG_SIZE_CSS / MAGNIFY_ZOOM);
+      const sx = Math.max(0, Math.min(el.width  - srcSize, px - srcSize/2));
+      const sy = Math.max(0, Math.min(el.height - srcSize, py - srcSize/2));
 
+      // 清空并裁圆
       magCtx.clearRect(0, 0, magCanvas.width, magCanvas.height);
       magCtx.save();
       magCtx.beginPath();
-      magCtx.arc(MAG_RADIUS, MAG_RADIUS, MAG_RADIUS - 1, 0, Math.PI * 2);
+      magCtx.arc(magCanvas.width/2, magCanvas.height/2, magCanvas.width/2 - 1, 0, Math.PI * 2);
       magCtx.closePath();
       magCtx.clip();
+
+      // 绘制放大图像（高质量插值）
       magCtx.imageSmoothingEnabled = true;
       magCtx.imageSmoothingQuality = "high";
-      magCtx.drawImage(pageCanvas, sx, sy, srcSize, srcSize, 0, 0, magCanvas.width, magCanvas.height);
-
-      const grd = magCtx.createRadialGradient(MAG_RADIUS * 0.6, MAG_RADIUS * 0.5, MAG_RADIUS * 0.1, MAG_RADIUS, MAG_RADIUS, MAG_RADIUS);
-      grd.addColorStop(0, "rgba(255,255,255,0.14)");
-      grd.addColorStop(0.6, "rgba(255,255,255,0.06)");
-      grd.addColorStop(1, "rgba(255,255,255,0.00)");
-      magCtx.fillStyle = grd;
-      magCtx.fillRect(0, 0, magCanvas.width, magCanvas.height);
+      magCtx.drawImage(el, sx, sy, srcSize, srcSize, 0, 0, magCanvas.width, magCanvas.height);
       magCtx.restore();
+      // 不再叠加任何白边/渐变，保持纯“透镜”效果
     });
 
-    const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
-    if (isTouch) {
+    // 触屏设备禁用自定义光标
+    if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
       document.body.style.cursor = 'auto';
-      cursor.style.display = 'none';
+      cursorEl.style.display = 'none';
     }
   </script>
 </body>
